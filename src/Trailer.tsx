@@ -1,5 +1,6 @@
 import {
   AbsoluteFill,
+  Audio,
   interpolate,
   OffthreadVideo,
   Sequence,
@@ -69,6 +70,20 @@ export const Trailer: React.FC<Props> = ({
 
   return (
     <AbsoluteFill style={{ backgroundColor: "#000" }}>
+      {audioUrl && (
+        <Audio
+          src={audioUrl}
+          volume={(f) =>
+            interpolate(
+              f,
+              [0, 5, durationInFrames - fps * 2, durationInFrames],
+              [0, 1, 1, 0],
+              { extrapolateLeft: "clamp", extrapolateRight: "clamp" }
+            )
+          }
+        />
+      )}
+
       {/* Video clips */}
       <AbsoluteFill style={{ opacity }}>
         {clipStartFrames.map((startFrom, i) => (
