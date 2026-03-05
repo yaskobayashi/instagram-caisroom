@@ -44,6 +44,9 @@ if (DASHBOARD_PASSWORD) {
 }
 
 const PORT = Number(process.env.PORT) || 3333;
+const BASE_URL = process.env.RAILWAY_PUBLIC_DOMAIN
+  ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
+  : `http://localhost:${PORT}`;
 const ROOT = path.resolve(__dirname, "..");
 const OUT_DIR = path.join(ROOT, "out");
 const TRACKS_DIR = path.join(ROOT, "tracks");
@@ -278,14 +281,14 @@ app.post("/api/render", async (req, res) => {
       // Strip audio and serve locally so Remotion doesn't stream a large remote file.
       const loopSource = movie.loop_video_url || movie.video_url;
       const localVideoPath = await stripAudio(loopSource, movie.id);
-      const localVideoUrl = `http://localhost:${PORT}/cache/${path.basename(localVideoPath)}`;
+      const localVideoUrl = `${BASE_URL}/cache/${path.basename(localVideoPath)}`;
 
       // Loop videos are typically 10–30 s; use 30 s as a safe upper bound.
       const loopDurationSec = 30;
 
       // Ensure audioUrl is absolute — Remotion cannot resolve relative URLs
       const absoluteAudioUrl = audioUrl
-        ? audioUrl.startsWith("/") ? `http://localhost:${PORT}${audioUrl}` : audioUrl
+        ? audioUrl.startsWith("/") ? `${BASE_URL}${audioUrl}` : audioUrl
         : undefined;
 
       const inputProps = {
