@@ -21,8 +21,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # Install dependencies first (cached layer unless package.json changes)
+# PUPPETEER_SKIP_DOWNLOAD skips the ~130MB Chrome binary during install;
+# Remotion will download it on first render via ensureBrowser().
 COPY package*.json ./
-RUN npm ci --prefer-offline
+RUN PUPPETEER_SKIP_DOWNLOAD=true npm ci --prefer-offline
 
 # Copy source
 COPY . .

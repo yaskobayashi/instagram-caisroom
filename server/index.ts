@@ -5,7 +5,7 @@ import fs from "fs";
 import ffmpeg from "fluent-ffmpeg";
 import ffmpegStatic from "ffmpeg-static";
 import { bundle } from "@remotion/bundler";
-import { renderMedia, selectComposition } from "@remotion/renderer";
+import { ensureBrowser, renderMedia, selectComposition } from "@remotion/renderer";
 import type { Movie } from "../scripts/scrape";
 
 // Use bundled FFmpeg binary
@@ -535,8 +535,15 @@ app.use("/tracks", express.static(TRACKS_DIR));
 app.use("/cache", express.static(CACHE_DIR));
 app.use(express.static(path.join(ROOT, "web")));
 
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   const hasJamendo = !!process.env.JAMENDO_CLIENT_ID;
   console.log(`\n✅  CAIS ROOM dashboard → http://localhost:${PORT}`);
-  console.log(`🎵  Jamendo: ${hasJamendo ? "configured ✓" : "not configured (add JAMENDO_CLIENT_ID to .env)"}\n`);
+  console.log(`🎵  Jamendo: ${hasJamendo ? "configured ✓" : "not configured (add JAMENDO_CLIENT_ID to .env)"}`);
+  // Pre-download Chrome so the first render doesn't pay the download cost
+  try {
+    await ensureBrowser();
+    console.log("🌐  Browser ready\n");
+  } catch {
+    console.warn("⚠️  Could not pre-download browser — will retry on first render\n");
+  }
 });
