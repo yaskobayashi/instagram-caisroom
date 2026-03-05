@@ -58,6 +58,15 @@ export interface JamendoTrack {
 
 const jobs = new Map<string, RenderJob>();
 let cachedBundle: string | null = null;
+let cachedBundleMtime = 0;
+
+function srcMtime(): number {
+  const srcDir = path.join(ROOT, "src");
+  return fs.readdirSync(srcDir).reduce((max, f) => {
+    try { return Math.max(max, fs.statSync(path.join(srcDir, f)).mtimeMs); }
+    catch { return max; }
+  }, 0);
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
@@ -80,8 +89,10 @@ function outputPath(movieId: string) {
 }
 
 async function getBundle(): Promise<string> {
-  if (cachedBundle) return cachedBundle;
+  const mtime = srcMtime();
+  if (cachedBundle && mtime <= cachedBundleMtime) return cachedBundle;
   cachedBundle = await bundle({ entryPoint: path.join(ROOT, "src/index.ts") });
+  cachedBundleMtime = mtime;
   return cachedBundle;
 }
 
