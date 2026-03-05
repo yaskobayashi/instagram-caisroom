@@ -1,0 +1,11 @@
+node_modules
+.git
+out/
+cache/
+tracks/
+movies.json
+posts.json
+queue.json
+*.mp4
+*.mp3
+*.wav

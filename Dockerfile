@@ -1,4 +1,4 @@
-FROM node:20
+FROM node:20-slim
 
 # Chrome/Remotion shared library dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -20,9 +20,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
+# Install dependencies first (cached layer unless package.json changes)
 COPY package*.json ./
-RUN npm ci
+RUN npm ci --prefer-offline
 
+# Copy source
 COPY . .
 
 EXPOSE 3333
