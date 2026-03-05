@@ -274,6 +274,11 @@ app.post("/api/render", async (req, res) => {
       job.status = "rendering";
       const FPS = 30;
 
+      // Ensure audioUrl is absolute — Remotion cannot resolve relative URLs
+      const absoluteAudioUrl = audioUrl
+        ? audioUrl.startsWith("/") ? `http://localhost:${PORT}${audioUrl}` : audioUrl
+        : undefined;
+
       const inputProps = {
         videoUrl: movie.video_url,
         videoDurationSec: (movie.duration ?? 1) * 60,
@@ -281,7 +286,7 @@ app.post("/api/render", async (req, res) => {
         director: movie.director,
         country: movie.country,
         genres: movie.genres ?? [],
-        audioUrl: audioUrl ?? undefined,
+        audioUrl: absoluteAudioUrl,
       };
 
       const serveUrl = await getBundle();
