@@ -22,8 +22,8 @@ async function renderTrailer(movie: Movie, outputPath: string) {
   console.log("\n");
 
   const inputProps = {
-    videoUrl: movie.video_url,
-    videoDurationSec: (movie.duration ?? 1) * 60,
+    videoUrl: movie.loop_video_url || movie.video_url,
+    videoDurationSec: 30, // loop videos are short; avoids seeking large remote files
     title: movie.title,
     director: movie.director,
     country: movie.country,
@@ -45,6 +45,7 @@ async function renderTrailer(movie: Movie, outputPath: string) {
     codec: "h264",
     outputLocation: outputPath,
     inputProps,
+    concurrency: 1,
     onProgress: ({ progress }) =>
       process.stdout.write(`\r  Render: ${Math.round(progress * 100)}%`),
   });

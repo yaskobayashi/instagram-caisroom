@@ -274,14 +274,25 @@ app.post("/api/render", async (req, res) => {
       job.status = "rendering";
       const FPS = 30;
 
+      // Use loop video (short clip) instead of full film to avoid OOM.
+      // Strip audio and serve locally so Remotion doesn't stream a large remote file.
+      const loopSource = movie.loop_video_url || movie.video_url;
+      const localVideoPath = await stripAudio(loopSource, movie.id);
+      const localVideoUrl = `http://localhost:${PORT}/cache/${path.basename(localVideoPath)}`;
+
+      // Probe actual loop duration so clip offsets don't seek past the end
+      const loopDurationSec = await new Promise<number>((resolve) => {
+        ffmpeg.ffprobe(localVideoPath, (err, meta) => resolve(err ? 30 : (meta.format.duration ?? 30)));
+      });
+
       // Ensure audioUrl is absolute — Remotion cannot resolve relative URLs
       const absoluteAudioUrl = audioUrl
         ? audioUrl.startsWith("/") ? `http://localhost:${PORT}${audioUrl}` : audioUrl
         : undefined;
 
       const inputProps = {
-        videoUrl: movie.video_url,
-        videoDurationSec: (movie.duration ?? 1) * 60,
+        videoUrl: localVideoUrl,
+        videoDurationSec: loopDurationSec,
         title: movie.title,
         director: movie.director,
         country: movie.country,
@@ -299,6 +310,7 @@ app.post("/api/render", async (req, res) => {
         codec: "h264",
         outputLocation: out,
         inputProps,
+        concurrency: 1,
         onProgress: ({ progress }) => { job.progress = Math.round(progress * 100); },
       });
 
