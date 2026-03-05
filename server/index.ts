@@ -305,7 +305,10 @@ app.post("/api/render", async (req, res) => {
       job.outputPath = out;
     } catch (e: unknown) {
       job.status = "error";
-      job.error = String(e);
+      job.error = e instanceof Error
+        ? `${e.message}\n${e.stack ?? ""}`
+        : JSON.stringify(e) || String(e) || "Unknown error";
+      console.error("[Render error]", e);
     }
   })();
 });
@@ -314,6 +317,10 @@ app.get("/api/render/:jobId", (req, res) => {
   const job = jobs.get(req.params.jobId);
   if (!job) return res.status(404).json({ error: "Job not found" });
   res.json(job);
+});
+
+app.get("/api/render/all/debug", (_req, res) => {
+  res.json([...jobs.values()]);
 });
 
 app.get("/api/rendered/:movieId", (req, res) => {
