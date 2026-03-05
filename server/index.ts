@@ -28,6 +28,10 @@ app.use(express.json());
 const DASHBOARD_PASSWORD = process.env.DASHBOARD_PASSWORD;
 if (DASHBOARD_PASSWORD) {
   app.use((req, res, next) => {
+    // Static assets accessed internally by Remotion renderer — skip auth
+    if (req.path.startsWith("/cache/") || req.path.startsWith("/out/") || req.path.startsWith("/tracks/")) {
+      return next();
+    }
     const auth = req.headers.authorization ?? "";
     const [scheme, encoded] = auth.split(" ");
     if (scheme === "Basic" && encoded) {
