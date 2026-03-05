@@ -53,20 +53,19 @@ export const Trailer: React.FC<Props> = ({
       {audioUrl && (
         <Audio
           src={audioUrl}
-          volume={(f) =>
-            interpolate(
-              f,
-              [0, fps * 1, durationInFrames - fps * 2, durationInFrames],
-              [0, 1, 1, 0],
-              { extrapolateLeft: "clamp", extrapolateRight: "clamp" }
-            )
-          }
+          volume={interpolate(
+            frame,
+            [0, 15, durationInFrames - fps * 2, durationInFrames],
+            [0, 1, 1, 0],
+            { extrapolateLeft: "clamp", extrapolateRight: "clamp" }
+          )}
         />
       )}
 
       <AbsoluteFill style={{ opacity }}>
         <OffthreadVideo
           src={videoUrl}
+          loop
           style={{ width: "100%", height: "100%", objectFit: "cover" }}
         />
       </AbsoluteFill>
