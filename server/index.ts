@@ -280,10 +280,8 @@ app.post("/api/render", async (req, res) => {
       const localVideoPath = await stripAudio(loopSource, movie.id);
       const localVideoUrl = `http://localhost:${PORT}/cache/${path.basename(localVideoPath)}`;
 
-      // Probe actual loop duration so clip offsets don't seek past the end
-      const loopDurationSec = await new Promise<number>((resolve) => {
-        ffmpeg.ffprobe(localVideoPath, (err, meta) => resolve(err ? 30 : (meta.format.duration ?? 30)));
-      });
+      // Loop videos are typically 10–30 s; use 30 s as a safe upper bound.
+      const loopDurationSec = 30;
 
       // Ensure audioUrl is absolute — Remotion cannot resolve relative URLs
       const absoluteAudioUrl = audioUrl
