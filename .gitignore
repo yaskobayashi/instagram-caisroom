@@ -3,9 +3,13 @@ dist
 .DS_Store
 .env
 
-# Ignore the output video from Git but not videos you import into src/.
-out
+# Runtime output
+out/
+cache/
+tracks/
 
-# Runtime data
+# Runtime data (generated at startup)
 movies.json
+posts.json
+queue.json
 posted.json

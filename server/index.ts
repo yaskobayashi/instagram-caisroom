@@ -24,7 +24,22 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-const PORT = 3333;
+// ─── Basic auth ───────────────────────────────────────────────────────────
+const DASHBOARD_PASSWORD = process.env.DASHBOARD_PASSWORD;
+if (DASHBOARD_PASSWORD) {
+  app.use((req, res, next) => {
+    const auth = req.headers.authorization ?? "";
+    const [scheme, encoded] = auth.split(" ");
+    if (scheme === "Basic" && encoded) {
+      const [, pass] = Buffer.from(encoded, "base64").toString().split(":");
+      if (pass === DASHBOARD_PASSWORD) return next();
+    }
+    res.setHeader("WWW-Authenticate", 'Basic realm="CAIS ROOM"');
+    res.status(401).send("Authentication required");
+  });
+}
+
+const PORT = Number(process.env.PORT) || 3333;
 const ROOT = path.resolve(__dirname, "..");
 const OUT_DIR = path.join(ROOT, "out");
 const TRACKS_DIR = path.join(ROOT, "tracks");

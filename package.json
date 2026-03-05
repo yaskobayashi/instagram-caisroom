@@ -9,7 +9,11 @@
     "render": "npx tsx scripts/render.ts",
     "post": "npx tsx scripts/post.ts",
     "run-all": "npx tsx scripts/run-all.ts",
-    "web": "npx tsx server/index.ts"
+    "web": "npx tsx server/index.ts",
+    "start": "npx tsx server/index.ts"
+  },
+  "engines": {
+    "node": ">=20"
   },
   "dependencies": {
     "@remotion/bundler": "^4.0.0",
