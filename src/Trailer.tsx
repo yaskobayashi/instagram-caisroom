@@ -76,6 +76,7 @@ export const Trailer: React.FC<Props> = ({
             <OffthreadVideo
               src={videoUrl}
               startFrom={startFrom}
+              muted
               style={{ width: "100%", height: "100%", objectFit: "cover" }}
             />
           </Sequence>
