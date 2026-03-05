@@ -274,12 +274,8 @@ app.post("/api/render", async (req, res) => {
       job.status = "rendering";
       const FPS = 30;
 
-      // Strip original audio before passing to Remotion
-      await stripAudio(movie.video_url, movie.id);
-      const strippedVideoUrl = `http://localhost:${PORT}/cache/${movie.id}-noaudio.mp4`;
-
       const inputProps = {
-        videoUrl: strippedVideoUrl,
+        videoUrl: movie.video_url,
         videoDurationSec: (movie.duration ?? 1) * 60,
         title: movie.title,
         director: movie.director,
