@@ -1,8 +1,8 @@
 import {
   AbsoluteFill,
-  Audio,
   interpolate,
   OffthreadVideo,
+  Sequence,
   spring,
   useCurrentFrame,
   useVideoConfig,
@@ -11,19 +11,22 @@ import { z } from "zod";
 
 export const trailerSchema = z.object({
   videoUrl: z.string(),
+  videoDurationSec: z.number(),
   title: z.string(),
   director: z.string(),
   country: z.string(),
   genres: z.array(z.string()),
-  clipStartSec: z.number(),
-  clipDurationSec: z.number(),
   audioUrl: z.string().optional(),
 });
 
 type Props = z.infer<typeof trailerSchema>;
 
+const CLIP_COUNT = 5;
+const CLIP_SEC = 6;
+
 export const Trailer: React.FC<Props> = ({
   videoUrl,
+  videoDurationSec,
   title,
   director,
   country,
@@ -33,51 +36,66 @@ export const Trailer: React.FC<Props> = ({
   const frame = useCurrentFrame();
   const { fps, durationInFrames } = useVideoConfig();
 
-  const fadeIn = interpolate(frame, [0, fps * 0.5], [0, 1], {
-    extrapolateRight: "clamp",
+  const clipFrames = fps * CLIP_SEC;
+
+  // Spread clips across the video: 5% → 90% to avoid black frames at edges
+  const clipStartFrames = Array.from({ length: CLIP_COUNT }, (_, i) => {
+    const progress = 0.05 + (i / (CLIP_COUNT - 1)) * 0.85;
+    return Math.floor(progress * videoDurationSec * fps);
   });
-  const fadeOut = interpolate(
-    frame,
-    [durationInFrames - fps, durationInFrames],
-    [1, 0],
-    { extrapolateLeft: "clamp", extrapolateRight: "clamp" }
-  );
+
+  // Fade in/out envelope for the whole composition
+  const fadeIn = interpolate(frame, [0, 8], [0, 1], { extrapolateRight: "clamp" });
+  const fadeOut = interpolate(frame, [durationInFrames - 10, durationInFrames], [1, 0], {
+    extrapolateLeft: "clamp",
+  });
   const opacity = Math.min(fadeIn, fadeOut);
 
-  const titleSpring = spring({ fps, frame: frame - fps * 0.3, config: { damping: 15 } });
-  const subtitleSpring = spring({ fps, frame: frame - fps * 0.6, config: { damping: 15 } });
+  // Flash cut: brief white flash on each clip boundary
+  const flashAtCuts = Array.from({ length: CLIP_COUNT - 1 }, (_, i) => {
+    const cutFrame = (i + 1) * clipFrames;
+    return interpolate(frame, [cutFrame - 3, cutFrame, cutFrame + 3], [0, 0.6, 0], {
+      extrapolateLeft: "clamp",
+      extrapolateRight: "clamp",
+    });
+  });
+  const flash = Math.max(0, ...flashAtCuts);
+
+  // Text animations — appear in the last clip
+  const textStart = (CLIP_COUNT - 1) * clipFrames;
+  const titleSpring = spring({ fps, frame: frame - textStart - fps * 0.5, config: { damping: 14 } });
+  const subtitleSpring = spring({ fps, frame: frame - textStart - fps * 0.8, config: { damping: 14 } });
   const logoSpring = spring({ fps, frame: frame - fps * 0.1, config: { damping: 12 } });
 
   return (
     <AbsoluteFill style={{ backgroundColor: "#000" }}>
-      {audioUrl && (
-        <Audio
-          src={audioUrl}
-          volume={interpolate(
-            frame,
-            [0, 15, durationInFrames - fps * 2, durationInFrames],
-            [0, 1, 1, 0],
-            { extrapolateLeft: "clamp", extrapolateRight: "clamp" }
-          )}
-        />
-      )}
-
+      {/* Video clips */}
       <AbsoluteFill style={{ opacity }}>
-        <OffthreadVideo
-          src={videoUrl}
-          loop
-          style={{ width: "100%", height: "100%", objectFit: "cover" }}
-        />
+        {clipStartFrames.map((startFrom, i) => (
+          <Sequence key={i} from={i * clipFrames} durationInFrames={clipFrames}>
+            <OffthreadVideo
+              src={videoUrl}
+              startFrom={startFrom}
+              style={{ width: "100%", height: "100%", objectFit: "cover" }}
+            />
+          </Sequence>
+        ))}
       </AbsoluteFill>
 
+      {/* Flash on cuts */}
+      {flash > 0 && (
+        <AbsoluteFill style={{ backgroundColor: `rgba(255,255,255,${flash})` }} />
+      )}
+
+      {/* Gradient overlay */}
       <AbsoluteFill
         style={{
           background:
-            "linear-gradient(to top, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.3) 40%, transparent 70%)",
+            "linear-gradient(to top, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.15) 40%, rgba(0,0,0,0.3) 100%)",
         }}
       />
 
-      {/* Top logo */}
+      {/* CAIS ROOM logo — always visible */}
       <div
         style={{
           position: "absolute",
@@ -94,7 +112,7 @@ export const Trailer: React.FC<Props> = ({
           style={{
             fontFamily: "sans-serif",
             fontWeight: 800,
-            fontSize: 42,
+            fontSize: 38,
             letterSpacing: 12,
             color: "#C9BFA8",
             textTransform: "uppercase",
@@ -104,13 +122,14 @@ export const Trailer: React.FC<Props> = ({
         </span>
       </div>
 
-      {/* Bottom text */}
+      {/* Title + director — appear on last clip */}
       <div style={{ position: "absolute", bottom: 120, left: 60, right: 60 }}>
         <div
           style={{
             display: "flex",
-            gap: 12,
-            marginBottom: 20,
+            flexWrap: "wrap",
+            gap: 10,
+            marginBottom: 18,
             opacity: subtitleSpring,
             transform: `translateY(${interpolate(subtitleSpring, [0, 1], [20, 0])}px)`,
           }}
@@ -120,7 +139,7 @@ export const Trailer: React.FC<Props> = ({
               key={g}
               style={{
                 fontFamily: "sans-serif",
-                fontSize: 22,
+                fontSize: 20,
                 letterSpacing: 3,
                 color: "#C9BFA8",
                 textTransform: "uppercase",
@@ -138,7 +157,7 @@ export const Trailer: React.FC<Props> = ({
           style={{
             fontFamily: "sans-serif",
             fontWeight: 800,
-            fontSize: 72,
+            fontSize: 68,
             lineHeight: 1.1,
             color: "#FFFFFF",
             textTransform: "uppercase",
@@ -153,9 +172,9 @@ export const Trailer: React.FC<Props> = ({
         <div
           style={{
             fontFamily: "sans-serif",
-            fontSize: 28,
-            color: "rgba(255,255,255,0.7)",
-            marginTop: 16,
+            fontSize: 26,
+            color: "rgba(255,255,255,0.65)",
+            marginTop: 14,
             opacity: subtitleSpring,
             transform: `translateY(${interpolate(subtitleSpring, [0, 1], [20, 0])}px)`,
           }}
@@ -164,13 +183,14 @@ export const Trailer: React.FC<Props> = ({
         </div>
       </div>
 
+      {/* caisroom.com */}
       <div
         style={{
           position: "absolute",
           bottom: 60,
           left: 60,
           fontFamily: "sans-serif",
-          fontSize: 22,
+          fontSize: 20,
           letterSpacing: 4,
           color: "#C9BFA8",
           textTransform: "uppercase",

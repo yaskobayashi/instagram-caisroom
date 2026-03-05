@@ -22,13 +22,12 @@ async function renderTrailer(movie: Movie, outputPath: string) {
   console.log("\n");
 
   const inputProps = {
-    videoUrl: movie.loop_video_url || movie.video_url,
+    videoUrl: movie.video_url,
+    videoDurationSec: (movie.duration ?? 1) * 60,
     title: movie.title,
     director: movie.director,
     country: movie.country,
     genres: movie.genres ?? [],
-    clipStartSec: 0,
-    clipDurationSec: TRAILER_DURATION_SEC,
   };
 
   const composition = await selectComposition({
@@ -37,7 +36,6 @@ async function renderTrailer(movie: Movie, outputPath: string) {
     inputProps,
   });
 
-  // Override duration to match clip
   const durationInFrames = TRAILER_DURATION_SEC * FPS;
 
   console.log(`Rendering "${movie.title}" → ${outputPath}`);

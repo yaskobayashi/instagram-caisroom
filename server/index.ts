@@ -204,17 +204,15 @@ app.post("/api/render", async (req, res) => {
   (async () => {
     try {
       job.status = "rendering";
-      const CLIP_SEC = 30;
       const FPS = 30;
 
       const inputProps = {
-        videoUrl: movie.loop_video_url || movie.video_url,
+        videoUrl: movie.video_url,
+        videoDurationSec: (movie.duration ?? 1) * 60,
         title: movie.title,
         director: movie.director,
         country: movie.country,
         genres: movie.genres ?? [],
-        clipStartSec: 0,
-        clipDurationSec: CLIP_SEC,
         audioUrl: audioUrl ?? undefined,
       };
 
@@ -223,7 +221,7 @@ app.post("/api/render", async (req, res) => {
       const out = outputPath(movieId);
 
       await renderMedia({
-        composition: { ...composition, durationInFrames: CLIP_SEC * FPS },
+        composition: { ...composition, durationInFrames: 30 * FPS },
         serveUrl,
         codec: "h264",
         outputLocation: out,
