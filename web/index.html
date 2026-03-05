@@ -1,0 +1,757 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CAIS ROOM — Instagram Queue</title>
+  <style>
+    :root {
+      --bg: #0a0a0a;
+      --bg2: #111;
+      --bg3: #1a1a1a;
+      --border: rgba(255,255,255,0.08);
+      --cream: #C9BFA8;
+      --cream-dim: rgba(201,191,168,0.5);
+      --white: #fff;
+      --muted: rgba(255,255,255,0.45);
+      --green: #4ade80;
+      --red: #f87171;
+      --blue: #60a5fa;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--white);
+      font-family: 'Inter', system-ui, sans-serif;
+      min-height: 100vh;
+    }
+
+    /* ── Header ── */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 20px 32px;
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      background: rgba(10,10,10,0.9);
+      backdrop-filter: blur(12px);
+      z-index: 100;
+    }
+    .logo {
+      font-size: 18px;
+      font-weight: 800;
+      letter-spacing: 6px;
+      color: var(--cream);
+      text-transform: uppercase;
+    }
+    .header-right { display: flex; align-items: center; gap: 16px; }
+    .queue-badge {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 6px 14px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+    .queue-badge span { color: var(--cream); font-weight: 600; }
+
+    /* ── Layout ── */
+    .layout {
+      display: grid;
+      grid-template-columns: 1fr 340px;
+      gap: 0;
+      height: calc(100vh - 65px);
+    }
+
+    /* ── Movie grid ── */
+    .movies-panel {
+      overflow-y: auto;
+      padding: 24px 32px;
+      border-right: 1px solid var(--border);
+    }
+    .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 20px;
+    }
+    .panel-title {
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    .search-input {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 7px 12px;
+      color: var(--white);
+      font-size: 13px;
+      width: 200px;
+      outline: none;
+    }
+    .search-input:focus { border-color: var(--cream-dim); }
+    .search-input::placeholder { color: var(--muted); }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 16px;
+    }
+
+    /* ── Movie card ── */
+    .card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+      cursor: pointer;
+      transition: border-color 0.2s, transform 0.15s;
+      position: relative;
+    }
+    .card:hover { border-color: rgba(201,191,168,0.3); transform: translateY(-2px); }
+    .card.selected { border-color: var(--cream); }
+    .card.queued { border-color: rgba(74,222,128,0.4); }
+
+    .card-video-wrap {
+      position: relative;
+      aspect-ratio: 9/16;
+      background: #000;
+      overflow: hidden;
+    }
+    .card-video-wrap video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    .card-badges {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      align-items: flex-end;
+    }
+    .badge {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      padding: 3px 8px;
+      border-radius: 20px;
+      text-transform: uppercase;
+    }
+    .badge-rendered { background: rgba(74,222,128,0.15); color: var(--green); border: 1px solid rgba(74,222,128,0.3); }
+    .badge-queued { background: rgba(201,191,168,0.15); color: var(--cream); border: 1px solid var(--cream-dim); }
+
+    .card-body { padding: 12px; }
+    .card-title {
+      font-size: 13px;
+      font-weight: 700;
+      line-height: 1.3;
+      margin-bottom: 4px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .card-meta { font-size: 11px; color: var(--muted); }
+
+    /* ── Right panel: detail ── */
+    .detail-panel {
+      overflow-y: auto;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+    .detail-empty {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      color: var(--muted);
+      font-size: 13px;
+      gap: 8px;
+      text-align: center;
+    }
+    .detail-empty-icon { font-size: 32px; opacity: 0.3; }
+
+    .detail-video-wrap {
+      position: relative;
+      aspect-ratio: 9/16;
+      background: #000;
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    .detail-video-wrap video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .detail-title {
+      font-size: 18px;
+      font-weight: 800;
+      line-height: 1.2;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    .detail-meta { font-size: 13px; color: var(--muted); line-height: 1.8; }
+    .detail-meta strong { color: rgba(255,255,255,0.7); }
+
+    .genres {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 6px;
+    }
+    .genre-tag {
+      font-size: 11px;
+      padding: 3px 10px;
+      border-radius: 20px;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    /* ── Track selector ── */
+    .section-label {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 8px;
+    }
+    .track-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .track-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      cursor: pointer;
+      transition: border-color 0.15s;
+      font-size: 13px;
+    }
+    .track-item:hover { border-color: var(--cream-dim); }
+    .track-item.selected { border-color: var(--cream); background: rgba(201,191,168,0.06); }
+    .track-icon { font-size: 16px; flex-shrink: 0; }
+    .track-name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .track-none { color: var(--muted); font-style: italic; }
+    .no-tracks {
+      font-size: 12px;
+      color: var(--muted);
+      padding: 8px 0;
+    }
+
+    /* ── Render / progress ── */
+    .progress-bar-wrap {
+      background: var(--bg3);
+      border-radius: 4px;
+      height: 6px;
+      overflow: hidden;
+    }
+    .progress-bar {
+      height: 100%;
+      background: var(--cream);
+      border-radius: 4px;
+      transition: width 0.3s;
+    }
+    .progress-label { font-size: 12px; color: var(--muted); margin-top: 6px; }
+
+    /* ── Buttons ── */
+    .btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      width: 100%;
+      padding: 12px;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      cursor: pointer;
+      border: none;
+      transition: opacity 0.15s, transform 0.1s;
+    }
+    .btn:hover:not(:disabled) { opacity: 0.85; transform: translateY(-1px); }
+    .btn:active:not(:disabled) { transform: translateY(0); }
+    .btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+    .btn-primary { background: var(--cream); color: #111; }
+    .btn-outline {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--white);
+    }
+    .btn-green { background: var(--green); color: #0a1a0a; }
+    .btn-red { background: transparent; border: 1px solid rgba(248,113,113,0.4); color: var(--red); }
+
+    /* ── Rendered preview ── */
+    .rendered-preview {
+      aspect-ratio: 9/16;
+      background: #000;
+      border-radius: 12px;
+      overflow: hidden;
+      border: 1px solid rgba(74,222,128,0.3);
+    }
+    .rendered-preview video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    /* ── Queue panel ── */
+    .queue-items { display: flex; flex-direction: column; gap: 8px; }
+    .queue-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      background: var(--bg2);
+      border: 1px solid rgba(74,222,128,0.2);
+      border-radius: 8px;
+      font-size: 13px;
+    }
+    .queue-item-title { flex: 1; }
+    .queue-remove {
+      background: none;
+      border: none;
+      color: var(--red);
+      cursor: pointer;
+      font-size: 14px;
+      opacity: 0.6;
+      padding: 2px 6px;
+    }
+    .queue-remove:hover { opacity: 1; }
+
+    /* ── Tabs ── */
+    .tabs {
+      display: flex;
+      border-bottom: 1px solid var(--border);
+      gap: 0;
+    }
+    .tab {
+      padding: 10px 16px;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: var(--muted);
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: color 0.15s;
+    }
+    .tab.active { color: var(--cream); border-bottom-color: var(--cream); }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    /* ── Scrollbar ── */
+    ::-webkit-scrollbar { width: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
+
+    .spinner {
+      display: inline-block;
+      width: 14px; height: 14px;
+      border: 2px solid rgba(0,0,0,0.2);
+      border-top-color: #111;
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">CAIS ROOM</div>
+  <div class="header-right">
+    <div class="queue-badge">Queue: <span id="queueCount">0</span></div>
+  </div>
+</header>
+
+<div class="layout">
+  <!-- Left: movie grid -->
+  <div class="movies-panel">
+    <div class="panel-header">
+      <div class="panel-title">Films (<span id="movieCount">…</span>)</div>
+      <input class="search-input" type="text" placeholder="Search…" id="searchInput" />
+    </div>
+    <div class="grid" id="movieGrid">
+      <!-- cards injected by JS -->
+    </div>
+  </div>
+
+  <!-- Right: detail + actions -->
+  <div class="detail-panel" id="detailPanel">
+    <div class="detail-empty">
+      <div class="detail-empty-icon">🎬</div>
+      <div>Select a film to get started</div>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = 'http://localhost:3333';
+
+let movies = [];
+let tracks = [];
+let selectedMovie = null;
+let selectedTrack = null; // null = no track
+let activeJob = null;
+let pollInterval = null;
+
+// ── Boot ──────────────────────────────────────────────────────────────────
+
+async function boot() {
+  await Promise.all([loadMovies(), loadTracks()]);
+  loadQueue();
+}
+
+async function loadMovies() {
+  try {
+    const res = await fetch(`${API}/api/movies`);
+    movies = await res.json();
+    renderGrid(movies);
+    document.getElementById('movieCount').textContent = movies.length;
+  } catch (e) {
+    document.getElementById('movieGrid').innerHTML =
+      '<p style="color:var(--red);font-size:13px">Could not load movies. Is the server running?</p>';
+  }
+}
+
+async function loadTracks() {
+  try {
+    const res = await fetch(`${API}/api/tracks`);
+    tracks = await res.json();
+  } catch (e) {
+    tracks = [];
+  }
+}
+
+async function loadQueue() {
+  try {
+    const res = await fetch(`${API}/api/queue`);
+    const q = await res.json();
+    document.getElementById('queueCount').textContent = q.length;
+  } catch(e) {}
+}
+
+// ── Grid ──────────────────────────────────────────────────────────────────
+
+function renderGrid(list) {
+  const grid = document.getElementById('movieGrid');
+  grid.innerHTML = '';
+  for (const m of list) {
+    const card = document.createElement('div');
+    card.className = 'card' +
+      (selectedMovie?.id === m.id ? ' selected' : '') +
+      (m.queued ? ' queued' : '');
+    card.innerHTML = `
+      <div class="card-video-wrap">
+        <video src="${m.loop_video_url}" autoplay muted loop playsinline></video>
+        <div class="card-badges">
+          ${m.rendered ? '<span class="badge badge-rendered">✓ Rendered</span>' : ''}
+          ${m.queued ? '<span class="badge badge-queued">Queued</span>' : ''}
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="card-title">${m.title}</div>
+        <div class="card-meta">${m.director} · ${m.country}</div>
+      </div>
+    `;
+    card.addEventListener('click', () => selectMovie(m));
+    grid.appendChild(card);
+  }
+}
+
+// ── Search ────────────────────────────────────────────────────────────────
+
+document.getElementById('searchInput').addEventListener('input', (e) => {
+  const q = e.target.value.toLowerCase();
+  renderGrid(movies.filter(m =>
+    m.title.toLowerCase().includes(q) ||
+    m.director.toLowerCase().includes(q) ||
+    m.country.toLowerCase().includes(q)
+  ));
+});
+
+// ── Select movie ──────────────────────────────────────────────────────────
+
+function selectMovie(m) {
+  selectedMovie = m;
+  selectedTrack = null;
+  activeJob = null;
+  if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
+
+  // Refresh rendered status
+  fetch(`${API}/api/rendered/${m.id}`)
+    .then(r => r.json())
+    .then(d => {
+      selectedMovie = { ...selectedMovie, rendered: d.rendered, renderedUrl: d.url };
+      renderDetail();
+    });
+
+  renderGrid(movies.filter(mov => {
+    const q = document.getElementById('searchInput').value.toLowerCase();
+    return !q || mov.title.toLowerCase().includes(q) || mov.director.toLowerCase().includes(q);
+  }));
+  renderDetail();
+}
+
+// ── Detail panel ──────────────────────────────────────────────────────────
+
+function renderDetail() {
+  if (!selectedMovie) return;
+  const m = selectedMovie;
+
+  const panel = document.getElementById('detailPanel');
+  panel.innerHTML = `
+    <!-- Video preview -->
+    <div class="detail-video-wrap">
+      <video src="${m.loop_video_url}" autoplay muted loop playsinline></video>
+    </div>
+
+    <!-- Info -->
+    <div>
+      <div class="detail-title">${m.title}</div>
+      <div class="detail-meta" style="margin-top:8px">
+        <div><strong>Director</strong> ${m.director}</div>
+        <div><strong>Country</strong> ${m.country} · ${m.release_year}</div>
+        <div><strong>Duration</strong> ${m.duration} min</div>
+      </div>
+      <div class="genres">
+        ${(m.genres || []).map(g => `<span class="genre-tag">${g}</span>`).join('')}
+      </div>
+    </div>
+
+    <!-- Tabs -->
+    <div>
+      <div class="tabs">
+        <div class="tab active" data-tab="render">Render</div>
+        <div class="tab" data-tab="queue">Queue</div>
+      </div>
+
+      <div id="tabRender" class="tab-content active" style="padding-top:16px">
+        ${renderTrackSection()}
+        <div id="renderSection" style="margin-top:16px">
+          ${renderRenderSection()}
+        </div>
+      </div>
+
+      <div id="tabQueue" class="tab-content" style="padding-top:16px">
+        ${renderQueueSection()}
+      </div>
+    </div>
+  `;
+
+  // Tab switching
+  panel.querySelectorAll('.tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      panel.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      panel.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      panel.querySelector(`#tab${capitalize(tab.dataset.tab)}`).classList.add('active');
+    });
+  });
+
+  // Track selection
+  panel.querySelectorAll('.track-item').forEach(item => {
+    item.addEventListener('click', () => {
+      selectedTrack = item.dataset.url || null;
+      panel.querySelectorAll('.track-item').forEach(t => t.classList.remove('selected'));
+      item.classList.add('selected');
+    });
+  });
+
+  // Render button
+  panel.querySelector('#btnRender')?.addEventListener('click', startRender);
+
+  // Approve button
+  panel.querySelector('#btnApprove')?.addEventListener('click', approveForQueue);
+  panel.querySelector('#btnUnapprove')?.addEventListener('click', removeFromQueue);
+}
+
+function renderTrackSection() {
+  const noTrackSelected = selectedTrack === null;
+  return `
+    <div class="section-label">Audio Track</div>
+    <div class="track-list">
+      <div class="track-item${noTrackSelected ? ' selected' : ''}" data-url="">
+        <span class="track-icon">🔇</span>
+        <span class="track-name track-none">No audio</span>
+      </div>
+      ${tracks.length === 0
+        ? `<div class="no-tracks">Drop MP3/WAV files in the <code>tracks/</code> folder</div>`
+        : tracks.map(t => `
+          <div class="track-item${selectedTrack === t.url ? ' selected' : ''}" data-url="${t.url}">
+            <span class="track-icon">🎵</span>
+            <span class="track-name">${t.name}</span>
+          </div>
+        `).join('')
+      }
+    </div>
+  `;
+}
+
+function renderRenderSection() {
+  const m = selectedMovie;
+  if (activeJob) {
+    const { status, progress } = activeJob;
+    if (status === 'rendering' || status === 'pending') {
+      return `
+        <div class="progress-bar-wrap">
+          <div class="progress-bar" style="width:${progress}%"></div>
+        </div>
+        <div class="progress-label">Rendering… ${progress}%</div>
+      `;
+    }
+    if (status === 'error') {
+      return `
+        <div style="color:var(--red);font-size:13px;margin-bottom:12px">
+          ❌ Render failed: ${activeJob.error}
+        </div>
+        <button class="btn btn-primary" id="btnRender">Re-render</button>
+      `;
+    }
+  }
+
+  if (m.rendered && m.renderedUrl) {
+    return `
+      <div class="rendered-preview" style="margin-bottom:12px">
+        <video src="${m.renderedUrl}" controls muted loop playsinline></video>
+      </div>
+      <button class="btn btn-outline" id="btnRender" style="margin-bottom:8px">Re-render</button>
+      ${m.queued
+        ? `<button class="btn btn-red" id="btnUnapprove">Remove from Queue</button>`
+        : `<button class="btn btn-green" id="btnApprove">✓ Approve for Instagram</button>`
+      }
+    `;
+  }
+
+  return `<button class="btn btn-primary" id="btnRender">Render Trailer</button>`;
+}
+
+function renderQueueSection() {
+  const queuedMovies = movies.filter(m => m.queued);
+  if (!queuedMovies.length) {
+    return `<p style="color:var(--muted);font-size:13px">No films queued yet.<br>Render a trailer and approve it.</p>`;
+  }
+  return `
+    <div class="queue-items">
+      ${queuedMovies.map(m => `
+        <div class="queue-item">
+          <span style="font-size:16px">${m.rendered ? '✅' : '⏳'}</span>
+          <span class="queue-item-title">${m.title}</span>
+          <button class="queue-remove" data-id="${m.id}" title="Remove">✕</button>
+        </div>
+      `).join('')}
+    </div>
+    <div style="margin-top:12px;font-size:12px;color:var(--muted)">
+      Instagram posting coming soon — run <code>npm run run-all</code> manually for now.
+    </div>
+  `;
+}
+
+// ── Render ────────────────────────────────────────────────────────────────
+
+async function startRender() {
+  const btn = document.getElementById('btnRender');
+  if (btn) btn.disabled = true;
+
+  const audioUrl = selectedTrack
+    ? `${API}${selectedTrack}`
+    : undefined;
+
+  try {
+    const res = await fetch(`${API}/api/render`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ movieId: selectedMovie.id, audioUrl }),
+    });
+    const { jobId } = await res.json();
+
+    activeJob = { status: 'pending', progress: 0 };
+    updateRenderSection();
+
+    pollInterval = setInterval(async () => {
+      const jRes = await fetch(`${API}/api/render/${jobId}`);
+      activeJob = await jRes.json();
+      updateRenderSection();
+
+      if (activeJob.status === 'done' || activeJob.status === 'error') {
+        clearInterval(pollInterval);
+        pollInterval = null;
+        if (activeJob.status === 'done') {
+          // Refresh rendered flag
+          const d = await (await fetch(`${API}/api/rendered/${selectedMovie.id}`)).json();
+          selectedMovie = { ...selectedMovie, rendered: d.rendered, renderedUrl: d.url };
+          // Refresh movies list
+          await loadMovies();
+        }
+        updateRenderSection();
+      }
+    }, 800);
+  } catch (e) {
+    activeJob = { status: 'error', error: String(e) };
+    updateRenderSection();
+  }
+}
+
+function updateRenderSection() {
+  const el = document.getElementById('renderSection');
+  if (el) {
+    el.innerHTML = renderRenderSection();
+    el.querySelector('#btnRender')?.addEventListener('click', startRender);
+    el.querySelector('#btnApprove')?.addEventListener('click', approveForQueue);
+    el.querySelector('#btnUnapprove')?.addEventListener('click', removeFromQueue);
+  }
+}
+
+// ── Queue actions ─────────────────────────────────────────────────────────
+
+async function approveForQueue() {
+  await fetch(`${API}/api/queue`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ movieId: selectedMovie.id }),
+  });
+  selectedMovie = { ...selectedMovie, queued: true };
+  movies = movies.map(m => m.id === selectedMovie.id ? { ...m, queued: true } : m);
+  loadQueue();
+  renderDetail();
+  renderGrid(movies);
+}
+
+async function removeFromQueue() {
+  await fetch(`${API}/api/queue/${selectedMovie.id}`, { method: 'DELETE' });
+  selectedMovie = { ...selectedMovie, queued: false };
+  movies = movies.map(m => m.id === selectedMovie.id ? { ...m, queued: false } : m);
+  loadQueue();
+  renderDetail();
+  renderGrid(movies);
+}
+
+function capitalize(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
+
+boot();
+</script>
+</body>
+</html>
