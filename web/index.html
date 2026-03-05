@@ -283,7 +283,7 @@
 <audio id="previewAudio" style="display:none"></audio>
 
 <script>
-const API = 'http://localhost:3333';
+const API = window.location.hostname === 'localhost' ? 'http://localhost:3333' : '';
 
 let movies = [];
 let tracks = [];
