@@ -209,6 +209,51 @@
 
     @keyframes spin { to { transform: rotate(360deg); } }
     .spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid rgba(0,0,0,0.3); border-top-color: #111; border-radius: 50%; animation: spin 0.6s linear infinite; }
+
+    /* ── Publish ── */
+    .publish-mode-toggle { display: flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin-bottom: 12px; }
+    .publish-mode-btn {
+      flex: 1; padding: 9px; font-size: 12px; font-weight: 700; letter-spacing: 1px;
+      text-transform: uppercase; cursor: pointer; background: transparent; border: none;
+      color: var(--muted); transition: all 0.15s;
+    }
+    .publish-mode-btn.active { background: var(--cream); color: #111; }
+    .schedule-picker { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+    .schedule-input {
+      width: 100%; background: var(--bg2); border: 1px solid var(--border); border-radius: 8px;
+      padding: 10px 12px; color: var(--white); font-size: 13px; outline: none;
+      color-scheme: dark;
+    }
+    .schedule-input:focus { border-color: var(--cream-dim); }
+    .schedule-error { font-size: 12px; color: var(--red); }
+
+    /* ── Posts list ── */
+    .post-item {
+      display: flex; flex-direction: column; gap: 4px;
+      padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border);
+      background: var(--bg2); font-size: 12px;
+    }
+    .post-item-header { display: flex; align-items: center; justify-content: space-between; }
+    .post-status { font-size: 10px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; padding: 2px 8px; border-radius: 20px; }
+    .post-status-scheduled { background: rgba(201,191,168,0.12); color: var(--cream); border: 1px solid var(--cream-dim); }
+    .post-status-posting  { background: rgba(250,200,50,0.1); color: #fac832; border: 1px solid rgba(250,200,50,0.3); }
+    .post-status-posted   { background: rgba(74,222,128,0.1); color: var(--green); border: 1px solid rgba(74,222,128,0.3); }
+    .post-status-failed   { background: rgba(248,113,113,0.1); color: var(--red); border: 1px solid rgba(248,113,113,0.3); }
+    .post-datetime { color: var(--muted); margin-top: 2px; }
+    .post-error { color: var(--red); margin-top: 4px; font-size: 11px; line-height: 1.4; word-break: break-all; }
+    .btn-cancel-post { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 12px; padding: 2px 4px; }
+    .btn-cancel-post:hover { color: var(--red); }
+
+    /* ── Caption ── */
+    .caption-wrap { display: flex; flex-direction: column; gap: 6px; }
+    .caption-textarea {
+      width: 100%; min-height: 160px; background: var(--bg2); border: 1px solid var(--border);
+      border-radius: 10px; padding: 12px; color: var(--white); font-size: 12px; font-family: inherit;
+      line-height: 1.6; resize: vertical; outline: none;
+    }
+    .caption-textarea:focus { border-color: var(--cream-dim); }
+    .caption-charcount { font-size: 11px; color: var(--muted); text-align: right; }
+    .caption-charcount.over { color: var(--red); }
   </style>
 </head>
 <body>
@@ -244,6 +289,11 @@ let movies = [];
 let tracks = [];
 let selectedMovie = null;
 let selectedTrack = null; // { url, name, artist }
+let captionText = '';
+let postMode = 'now'; // 'now' | 'schedule'
+let scheduleDateTime = ''; // value from datetime-local input
+let moviePosts = []; // posts for the selected film
+let postPollInterval = null;
 let activeJob = null;
 let pollInterval = null;
 let activeMusicTab = 'jamendo';
@@ -340,12 +390,23 @@ document.getElementById('searchInput').addEventListener('input', (e) => {
 
 // ── Select movie ────────────────────────────────────────────────────────
 
+function generateCaption(m) {
+  const bio = (m.description || '').trim();
+  return `${bio}\nDirected by ${m.director}\nProduced in ${m.country}\nFULL FILM @ caisroom.com link in bio`;
+}
+
 function selectMovie(m) {
   selectedMovie = m;
   selectedTrack = null;
+  captionText = generateCaption(m);
+  postMode = 'now';
+  scheduleDateTime = '';
+  moviePosts = [];
   activeJob = null;
   if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
+  if (postPollInterval) { clearInterval(postPollInterval); postPollInterval = null; }
   stopPreview();
+  loadMoviePosts();
 
   fetch(`${API}/api/rendered/${m.id}`)
     .then(r => r.json())
@@ -387,6 +448,7 @@ function renderDetail() {
       <div class="tabs">
         <div class="tab active" data-tab="Render">Render</div>
         <div class="tab" data-tab="Queue">Queue</div>
+        <div class="tab" data-tab="Posts">Posts</div>
       </div>
       <div id="tabRender" class="tab-content active" style="padding-top:16px">
         ${renderTrackPicker()}
@@ -394,6 +456,9 @@ function renderDetail() {
       </div>
       <div id="tabQueue" class="tab-content" style="padding-top:16px">
         ${renderQueueSection()}
+      </div>
+      <div id="tabPosts" class="tab-content" style="padding-top:16px">
+        <div id="postsTabContent">${renderPostsTab()}</div>
       </div>
     </div>
   `;
@@ -410,6 +475,7 @@ function renderDetail() {
 
   bindTrackPicker();
   bindRenderSection();
+  bindPostsTab();
 }
 
 // ── Track picker ─────────────────────────────────────────────────────────
@@ -742,13 +808,35 @@ function renderRenderSection() {
     }
   }
   if (m.rendered && m.renderedUrl) {
+    const charCount = captionText.length;
+    const overLimit = charCount > 2200;
+    const canPublish = !overLimit && captionText.trim().length > 0;
+    const scheduleError = validateSchedule();
     return `
       <div class="rendered-preview"><video src="${m.renderedUrl}" controls muted loop playsinline></video></div>
-      <button class="btn btn-outline" id="btnRender" style="margin-bottom:8px">Re-render</button>
-      ${m.queued
-        ? `<button class="btn btn-red" id="btnUnapprove">Remove from Queue</button>`
-        : `<button class="btn btn-green" id="btnApprove">✓ Approve for Instagram</button>`
-      }
+      <button class="btn btn-outline" id="btnRender" style="margin-bottom:16px">Re-render</button>
+
+      <div class="section-label" style="margin-bottom:8px">Instagram Caption</div>
+      <div class="caption-wrap" style="margin-bottom:16px">
+        <textarea class="caption-textarea" id="captionTextarea">${escapeHtml(captionText)}</textarea>
+        <div class="caption-charcount ${overLimit ? 'over' : ''}">${charCount} / 2200</div>
+      </div>
+
+      <div class="section-label" style="margin-bottom:8px">Publish to Instagram</div>
+      <div class="publish-mode-toggle">
+        <button class="publish-mode-btn ${postMode === 'now' ? 'active' : ''}" id="btnModeNow">Post Now</button>
+        <button class="publish-mode-btn ${postMode === 'schedule' ? 'active' : ''}" id="btnModeSchedule">Schedule</button>
+      </div>
+
+      <div class="schedule-picker" id="schedulePickerWrap" style="display:${postMode === 'schedule' ? 'flex' : 'none'}">
+        <input class="schedule-input" type="datetime-local" id="scheduleDatetimeInput" value="${scheduleDateTime}" />
+        ${scheduleError ? `<div class="schedule-error">${scheduleError}</div>` : ''}
+      </div>
+
+      <button class="btn btn-green" id="btnSubmitPost"
+        ${(!canPublish || (postMode === 'schedule' && (scheduleError || !scheduleDateTime))) ? 'disabled' : ''}>
+        ${postMode === 'now' ? 'Post Now' : 'Confirm and Schedule'}
+      </button>
     `;
   }
   return `<button class="btn btn-primary" id="btnRender">Render Trailer</button>`;
@@ -771,11 +859,167 @@ function renderQueueSection() {
   `;
 }
 
+function validateSchedule() {
+  if (postMode !== 'schedule' || !scheduleDateTime) return null;
+  const chosen = new Date(scheduleDateTime);
+  if (isNaN(chosen.getTime())) return 'Invalid date.';
+  if (chosen <= new Date()) return 'Must be a future date and time.';
+  return null;
+}
+
+function renderPostsTab() {
+  if (!moviePosts.length) {
+    return '<p style="color:var(--muted);font-size:13px">No posts yet for this film.</p>';
+  }
+  return `<div style="display:flex;flex-direction:column;gap:8px">
+    ${moviePosts.map(p => {
+      const statusClass = `post-status-${p.status}`;
+      const label = { scheduled: 'Scheduled', posting: 'Posting...', posted: 'Posted', failed: 'Failed' }[p.status] ?? p.status;
+      const dateLabel = p.status === 'posted' && p.postedAt
+        ? `Posted ${formatDatetime(p.postedAt)}`
+        : p.scheduledDatetime
+          ? `Scheduled for ${formatDatetime(p.scheduledDatetime)}`
+          : p.status === 'posting' ? 'Publishing now…' : `Created ${formatDatetime(p.createdAt)}`;
+      return `
+        <div class="post-item">
+          <div class="post-item-header">
+            <span class="post-status ${statusClass}">${label}</span>
+            ${p.status === 'scheduled'
+              ? `<button class="btn-cancel-post" data-post-id="${p.id}">Cancel</button>`
+              : ''}
+          </div>
+          <div class="post-datetime">${dateLabel}</div>
+          ${p.error ? `<div class="post-error">${p.error}</div>` : ''}
+        </div>`;
+    }).join('')}
+  </div>`;
+}
+
+async function loadMoviePosts() {
+  if (!selectedMovie) return;
+  try {
+    const res = await fetch(`${API}/api/posts/movie/${selectedMovie.id}`);
+    moviePosts = await res.json();
+    const el = document.getElementById('postsTabContent');
+    if (el) el.innerHTML = renderPostsTab();
+    bindPostsTab();
+
+    // Poll while any post is in progress
+    const hasPending = moviePosts.some(p => p.status === 'scheduled' || p.status === 'posting');
+    if (hasPending && !postPollInterval) {
+      postPollInterval = setInterval(loadMoviePosts, 5000);
+    } else if (!hasPending && postPollInterval) {
+      clearInterval(postPollInterval); postPollInterval = null;
+    }
+  } catch (e) {}
+}
+
+function bindPostsTab() {
+  document.querySelectorAll('.btn-cancel-post').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      await fetch(`${API}/api/posts/${btn.dataset.postId}`, { method: 'DELETE' });
+      loadMoviePosts();
+    });
+  });
+}
+
+async function submitPost() {
+  const btn = document.getElementById('btnSubmitPost');
+  if (btn) { btn.disabled = true; btn.textContent = '…'; }
+
+  // Convert local datetime to UTC ISO string
+  let scheduledDatetime = null;
+  if (postMode === 'schedule' && scheduleDateTime) {
+    scheduledDatetime = new Date(scheduleDateTime).toISOString();
+  }
+
+  try {
+    const res = await fetch(`${API}/api/posts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ movieId: selectedMovie.id, finalCaption: captionText, scheduledDatetime }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error ?? 'Unknown error');
+
+    // Switch to Posts tab
+    const panel = document.getElementById('detailPanel');
+    panel.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    panel.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+    panel.querySelector('[data-tab="Posts"]')?.classList.add('active');
+    panel.querySelector('#tabPosts')?.classList.add('active');
+
+    await loadMoviePosts();
+  } catch (e) {
+    alert(`Error: ${e.message}`);
+    if (btn) { btn.disabled = false; btn.textContent = postMode === 'now' ? 'Post Now' : 'Confirm and Schedule'; }
+  }
+}
+
 function bindRenderSection() {
   const panel = document.getElementById('detailPanel');
   panel.querySelector('#btnRender')?.addEventListener('click', startRender);
-  panel.querySelector('#btnApprove')?.addEventListener('click', approveForQueue);
-  panel.querySelector('#btnUnapprove')?.addEventListener('click', removeFromQueue);
+
+  const textarea = panel.querySelector('#captionTextarea');
+  if (textarea) {
+    textarea.addEventListener('input', () => {
+      captionText = textarea.value;
+      const count = captionText.length;
+      const counter = panel.querySelector('.caption-charcount');
+      if (counter) {
+        counter.textContent = `${count} / 2200`;
+        counter.classList.toggle('over', count > 2200);
+      }
+      updateSubmitBtn();
+    });
+  }
+
+  panel.querySelector('#btnModeNow')?.addEventListener('click', () => {
+    postMode = 'now';
+    document.getElementById('btnModeNow')?.classList.add('active');
+    document.getElementById('btnModeSchedule')?.classList.remove('active');
+    const picker = document.getElementById('schedulePickerWrap');
+    if (picker) picker.style.display = 'none';
+    updateSubmitBtn();
+  });
+
+  panel.querySelector('#btnModeSchedule')?.addEventListener('click', () => {
+    postMode = 'schedule';
+    document.getElementById('btnModeSchedule')?.classList.add('active');
+    document.getElementById('btnModeNow')?.classList.remove('active');
+    const picker = document.getElementById('schedulePickerWrap');
+    if (picker) picker.style.display = 'flex';
+    updateSubmitBtn();
+  });
+
+  panel.querySelector('#scheduleDatetimeInput')?.addEventListener('input', (e) => {
+    scheduleDateTime = e.target.value;
+    updateSubmitBtn();
+    // Show/clear error
+    const wrap = document.getElementById('schedulePickerWrap');
+    const errEl = wrap?.querySelector('.schedule-error');
+    const err = validateSchedule();
+    if (errEl) { errEl.textContent = err ?? ''; }
+    else if (err && wrap) {
+      const div = document.createElement('div');
+      div.className = 'schedule-error';
+      div.textContent = err;
+      wrap.appendChild(div);
+    }
+  });
+
+  panel.querySelector('#btnSubmitPost')?.addEventListener('click', submitPost);
+}
+
+function updateSubmitBtn() {
+  const btn = document.getElementById('btnSubmitPost');
+  if (!btn) return;
+  const overLimit = captionText.length > 2200;
+  const noCaption = !captionText.trim();
+  const scheduleErr = validateSchedule();
+  const noDatetime = postMode === 'schedule' && !scheduleDateTime;
+  btn.disabled = overLimit || noCaption || !!scheduleErr || noDatetime;
+  btn.textContent = postMode === 'now' ? 'Post Now' : 'Confirm and Schedule';
 }
 
 function updateRenderSection() {
@@ -841,6 +1085,17 @@ async function removeFromQueue() {
 function formatDuration(secs) {
   const m = Math.floor(secs / 60), s = secs % 60;
   return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+function escapeHtml(str) {
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function formatDatetime(iso) {
+  if (!iso) return '';
+  return new Date(iso).toLocaleString(undefined, {
+    month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+  });
 }
 
 boot();

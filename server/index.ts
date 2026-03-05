@@ -2,9 +2,14 @@ import express from "express";
 import cors from "cors";
 import path from "path";
 import fs from "fs";
+import ffmpeg from "fluent-ffmpeg";
+import ffmpegStatic from "ffmpeg-static";
 import { bundle } from "@remotion/bundler";
 import { renderMedia, selectComposition } from "@remotion/renderer";
 import type { Movie } from "../scripts/scrape";
+
+// Use bundled FFmpeg binary
+if (ffmpegStatic) ffmpeg.setFfmpegPath(ffmpegStatic);
 
 // Load .env
 const envPath = path.resolve(__dirname, "../.env");
@@ -19,14 +24,18 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+const PORT = 3333;
 const ROOT = path.resolve(__dirname, "..");
 const OUT_DIR = path.join(ROOT, "out");
 const TRACKS_DIR = path.join(ROOT, "tracks");
+const CACHE_DIR = path.join(ROOT, "cache");
 const MOVIES_PATH = path.join(ROOT, "movies.json");
 const QUEUE_PATH = path.join(ROOT, "queue.json");
+const POSTS_PATH = path.join(ROOT, "posts.json");
 
 fs.mkdirSync(OUT_DIR, { recursive: true });
 fs.mkdirSync(TRACKS_DIR, { recursive: true });
+fs.mkdirSync(CACHE_DIR, { recursive: true });
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
@@ -86,6 +95,35 @@ function saveQueue(q: string[]) {
 
 function outputPath(movieId: string) {
   return path.join(OUT_DIR, `trailer-${movieId}.mp4`);
+}
+
+/** Downloads a remote video, strips its audio track, returns local file path. */
+async function stripAudio(remoteUrl: string, movieId: string): Promise<string> {
+  const rawPath = path.join(CACHE_DIR, `${movieId}-raw.mp4`);
+  const strippedPath = path.join(CACHE_DIR, `${movieId}-noaudio.mp4`);
+
+  if (fs.existsSync(strippedPath)) return strippedPath;
+
+  // Download if not already cached
+  if (!fs.existsSync(rawPath)) {
+    const r = await fetch(remoteUrl);
+    if (!r.ok) throw new Error(`Failed to download video: ${r.status}`);
+    const buf = await r.arrayBuffer();
+    fs.writeFileSync(rawPath, Buffer.from(buf));
+  }
+
+  // Strip audio via FFmpeg
+  await new Promise<void>((resolve, reject) => {
+    ffmpeg(rawPath)
+      .noAudio()
+      .videoCodec("copy")
+      .output(strippedPath)
+      .on("end", () => resolve())
+      .on("error", (err) => reject(err))
+      .run();
+  });
+
+  return strippedPath;
 }
 
 async function getBundle(): Promise<string> {
@@ -217,8 +255,12 @@ app.post("/api/render", async (req, res) => {
       job.status = "rendering";
       const FPS = 30;
 
+      // Strip original audio before passing to Remotion
+      await stripAudio(movie.video_url, movie.id);
+      const strippedVideoUrl = `http://localhost:${PORT}/cache/${movie.id}-noaudio.mp4`;
+
       const inputProps = {
-        videoUrl: movie.video_url,
+        videoUrl: strippedVideoUrl,
         videoDurationSec: (movie.duration ?? 1) * 60,
         title: movie.title,
         director: movie.director,
@@ -283,13 +325,177 @@ app.get("/api/queue", (_req, res) => {
   }));
 });
 
+// ─── Scheduled Posts ──────────────────────────────────────────────────────
+
+type PostStatus = "scheduled" | "posting" | "posted" | "failed";
+
+interface ScheduledPost {
+  id: string;
+  movieId: string;
+  movieTitle: string;
+  videoFilePath: string;
+  finalCaption: string;
+  scheduledDatetime: string | null; // ISO UTC; null = post now
+  status: PostStatus;
+  createdAt: string;
+  postedAt: string | null;
+  error: string | null;
+}
+
+function loadPosts(): ScheduledPost[] {
+  if (!fs.existsSync(POSTS_PATH)) return [];
+  try { return JSON.parse(fs.readFileSync(POSTS_PATH, "utf-8")); } catch { return []; }
+}
+
+function savePosts(posts: ScheduledPost[]) {
+  fs.writeFileSync(POSTS_PATH, JSON.stringify(posts, null, 2));
+}
+
+async function extractThumbnail(videoPath: string): Promise<string> {
+  const thumbPath = videoPath.replace(/\.mp4$/i, "-thumb.jpg");
+  if (fs.existsSync(thumbPath)) return thumbPath;
+  await new Promise<void>((resolve, reject) => {
+    ffmpeg(videoPath)
+      .outputOptions(["-vframes", "1", "-q:v", "2"])
+      .output(thumbPath)
+      .on("end", () => resolve())
+      .on("error", reject)
+      .run();
+  });
+  return thumbPath;
+}
+
+async function publishToInstagram(post: ScheduledPost): Promise<void> {
+  const username = process.env.IG_USERNAME;
+  const password = process.env.IG_PASSWORD;
+  if (!username || !password || username === "seu_usuario_instagram") {
+    throw new Error("Instagram credentials not configured in .env (IG_USERNAME / IG_PASSWORD)");
+  }
+
+  const { IgApiClient } = await import("instagram-private-api");
+  const ig = new IgApiClient();
+  ig.state.generateDevice(username);
+  await ig.simulate.preLoginFlow();
+  await ig.account.login(username, password);
+  await ig.simulate.postLoginFlow();
+
+  const thumbPath = await extractThumbnail(post.videoFilePath);
+
+  await ig.publish.video({
+    video: fs.readFileSync(post.videoFilePath),
+    coverImage: fs.readFileSync(thumbPath),
+    caption: post.finalCaption,
+  });
+}
+
+// Idempotency: track which posts are currently being processed
+const activePublishing = new Set<string>();
+
+async function processPost(postId: string): Promise<void> {
+  if (activePublishing.has(postId)) return;
+  activePublishing.add(postId);
+  try {
+    // Mark as posting
+    const snap1 = loadPosts();
+    const idx1 = snap1.findIndex(p => p.id === postId);
+    if (idx1 === -1) return;
+    if (snap1[idx1].status !== "scheduled" && snap1[idx1].status !== "posting") return;
+    snap1[idx1].status = "posting";
+    savePosts(snap1);
+
+    await publishToInstagram(snap1[idx1]);
+
+    const snap2 = loadPosts();
+    const idx2 = snap2.findIndex(p => p.id === postId);
+    if (idx2 !== -1) { snap2[idx2].status = "posted"; snap2[idx2].postedAt = new Date().toISOString(); savePosts(snap2); }
+  } catch (e: unknown) {
+    const snap = loadPosts();
+    const idx = snap.findIndex(p => p.id === postId);
+    if (idx !== -1) { snap[idx].status = "failed"; snap[idx].error = String(e); savePosts(snap); }
+  } finally {
+    activePublishing.delete(postId);
+  }
+}
+
+// Check every 30 s for due scheduled posts
+setInterval(() => {
+  const now = new Date();
+  for (const post of loadPosts()) {
+    if (post.status === "scheduled" && post.scheduledDatetime && new Date(post.scheduledDatetime) <= now) {
+      processPost(post.id);
+    }
+  }
+}, 30_000);
+
+// POST  /api/posts  — create a post (now or scheduled)
+app.post("/api/posts", (req, res) => {
+  const { movieId, finalCaption, scheduledDatetime } = req.body as {
+    movieId: string;
+    finalCaption: string;
+    scheduledDatetime?: string | null;
+  };
+
+  if (!finalCaption?.trim()) return res.status(400).json({ error: "Caption is required" });
+  if (finalCaption.length > 2200) return res.status(400).json({ error: "Caption exceeds 2200 characters" });
+
+  const videoFilePath = outputPath(movieId);
+  if (!fs.existsSync(videoFilePath)) return res.status(400).json({ error: "Rendered video not found — render the trailer first" });
+
+  if (scheduledDatetime && new Date(scheduledDatetime) <= new Date()) {
+    return res.status(400).json({ error: "Scheduled time must be in the future" });
+  }
+
+  const movies = loadMovies();
+  const movie = movies.find(m => m.id === movieId);
+  const isNow = !scheduledDatetime;
+
+  const post: ScheduledPost = {
+    id: `${movieId}-${Date.now()}`,
+    movieId,
+    movieTitle: movie?.title ?? movieId,
+    videoFilePath,
+    finalCaption,
+    scheduledDatetime: scheduledDatetime ?? null,
+    status: isNow ? "posting" : "scheduled",
+    createdAt: new Date().toISOString(),
+    postedAt: null,
+    error: null,
+  };
+
+  const posts = loadPosts();
+  posts.unshift(post);
+  savePosts(posts);
+  res.json({ ok: true, post });
+
+  if (isNow) processPost(post.id);
+});
+
+// GET  /api/posts  — list all posts
+app.get("/api/posts", (_req, res) => res.json(loadPosts()));
+
+// GET  /api/posts/movie/:movieId  — posts for one film
+app.get("/api/posts/movie/:movieId", (req, res) =>
+  res.json(loadPosts().filter(p => p.movieId === req.params.movieId))
+);
+
+// DELETE  /api/posts/:id  — cancel a scheduled post
+app.delete("/api/posts/:id", (req, res) => {
+  const posts = loadPosts();
+  const idx = posts.findIndex(p => p.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ error: "Post not found" });
+  if (posts[idx].status === "posting") return res.status(400).json({ error: "Cannot cancel a post in progress" });
+  posts.splice(idx, 1);
+  savePosts(posts);
+  res.json({ ok: true });
+});
+
 // ─── Static ───────────────────────────────────────────────────────────────
 
 app.use("/out", express.static(OUT_DIR));
 app.use("/tracks", express.static(TRACKS_DIR));
+app.use("/cache", express.static(CACHE_DIR));
 app.use(express.static(path.join(ROOT, "web")));
 
-const PORT = 3333;
 app.listen(PORT, () => {
   const hasJamendo = !!process.env.JAMENDO_CLIENT_ID;
   console.log(`\n✅  CAIS ROOM dashboard → http://localhost:${PORT}`);
